@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+
+import { useState } from 'react'
 import {
   Music2,
   Upload,
@@ -37,7 +38,7 @@ function parseSpotifyTrackId(value) {
 
     if (
       !['open.spotify.com', 'www.open.spotify.com'].includes(
-        url.hostname
+        url.hostname,
       )
     ) {
       return ''
@@ -58,20 +59,13 @@ export default function AudioEditor({
   const [form, setForm] = useState(() => ({ ...entry }))
   const [audioName, setAudioName] = useState(entry.audioName || '')
   const [audioDuration, setAudioDuration] = useState(
-    Number(entry.audioDuration) || 0
+    Number(entry.audioDuration) || 0,
   )
   const [spotifyInput, setSpotifyInput] = useState(
-    entry.spotifyUrl || ''
+    entry.spotifyUrl || '',
   )
   const [error, setError] = useState('')
-
-  useEffect(() => {
-    setForm({ ...entry })
-    setAudioName(entry.audioName || '')
-    setAudioDuration(Number(entry.audioDuration) || 0)
-    setSpotifyInput(entry.spotifyUrl || '')
-    setError('')
-  }, [entry])
+  const [loadingAudio, setLoadingAudio] = useState(false)
 
   function update(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -79,6 +73,7 @@ export default function AudioEditor({
 
   function updateSpotify(value) {
     setSpotifyInput(value)
+
     const trackId = parseSpotifyTrackId(value)
 
     setForm((prev) => ({
@@ -90,7 +85,7 @@ export default function AudioEditor({
     setError(
       value.trim() && !trackId
         ? 'Cole um link válido de uma faixa do Spotify.'
-        : ''
+        : '',
     )
   }
 
@@ -101,22 +96,27 @@ export default function AudioEditor({
       !file.type.startsWith('audio/') &&
       !/\.(mp3|m4a|wav|ogg|aac|flac)$/i.test(file.name)
     ) {
-      setError('Escolha um arquivo de áudio, como MP3, M4A ou WAV.')
+      setError('Escolha um arquivo de áudio, como MP3 ou WAV.')
       return
     }
 
     const url = URL.createObjectURL(file)
     const audio = new Audio()
-    audio.preload = 'metadata'
 
+    audio.preload = 'metadata'
+    setLoadingAudio(true)
     setError('Carregando duração do áudio...')
 
     audio.onloadedmetadata = () => {
       const duration = audio.duration
+
       URL.revokeObjectURL(url)
+      setLoadingAudio(false)
 
       if (!Number.isFinite(duration) || duration <= 0) {
-        setError('Não foi possível detectar a duração desse áudio.')
+        setError(
+          'Não foi possível detectar a duração desse áudio. Tente outro arquivo.',
+        )
         return
       }
 
@@ -137,7 +137,10 @@ export default function AudioEditor({
 
     audio.onerror = () => {
       URL.revokeObjectURL(url)
-      setError('Não foi possível carregar esse áudio. Tente outro arquivo.')
+      setLoadingAudio(false)
+      setError(
+        'Não foi possível carregar esse áudio. Tente outro arquivo.',
+      )
     }
 
     audio.src = url
@@ -147,9 +150,10 @@ export default function AudioEditor({
   function changeStart(value) {
     if (!audioDuration) return
 
+    const maxStart = Math.max(0, audioDuration - 0.1)
     const start = Math.max(
       0,
-      Math.min(audioDuration - 0.1, Number(value) || 0)
+      Math.min(maxStart, Number(value) || 0),
     )
 
     setForm((prev) => {
@@ -158,7 +162,10 @@ export default function AudioEditor({
       return {
         ...prev,
         startSec: start,
-        endSec: Math.max(start + 0.1, currentEnd),
+        endSec: Math.min(
+          audioDuration,
+          Math.max(start + 0.1, currentEnd),
+        ),
       }
     })
   }
@@ -167,12 +174,16 @@ export default function AudioEditor({
     if (!audioDuration) return
 
     const start = Number(form.startSec) || 0
+    const minEnd = Math.min(audioDuration, start + 0.1)
     const end = Math.max(
-      start + 0.1,
-      Math.min(audioDuration, Number(value) || audioDuration)
+      minEnd,
+      Math.min(audioDuration, Number(value) || audioDuration),
     )
 
-    setForm((prev) => ({ ...prev, endSec: end }))
+    setForm((prev) => ({
+      ...prev,
+      endSec: end,
+    }))
   }
 
   function save() {
@@ -184,12 +195,15 @@ export default function AudioEditor({
     const start = Math.max(0, Number(form.startSec) || 0)
     const end = Number(form.endSec) || audioDuration
 
-    if (form.audioBlob && (
-      !audioDuration ||
-      start >= audioDuration ||
-      end <= start ||
-      end > audioDuration
-    )) {
+    if (
+      form.audioBlob &&
+      (
+        !audioDuration ||
+        start >= audioDuration ||
+        end <= start ||
+        end > audioDuration
+      )
+    ) {
       setError('Escolha um início e um fim válidos para o áudio.')
       return
     }
@@ -204,8 +218,10 @@ export default function AudioEditor({
     onSave({
       ...form,
       name: form.name.trim(),
-      startSec: start,
-      endSec: audioDuration ? Math.min(audioDuration, end) : 0,
+      startSec: form.audioBlob ? start : 0,
+      endSec: form.audioBlob
+        ? Math.min(audioDuration, end)
+        : 0,
       audioDuration,
       audioName,
       spotifyUrl: spotifyTrackId
@@ -218,6 +234,8 @@ export default function AudioEditor({
   const startSec = Math.max(0, Number(form.startSec) || 0)
   const endSec = Number(form.endSec) || audioDuration
   const hasAudio = Boolean(form.audioBlob)
+  const maxStart = Math.max(0, audioDuration - 0.1)
+  const minEnd = Math.min(audioDuration, startSec + 0.1)
 
   return (
     <div
@@ -285,13 +303,22 @@ export default function AudioEditor({
               value={form.emoji || '🎓'}
               onChange={(e) => update('emoji', e.target.value)}
             >
-              {['🎓', '✨', '🎉', '⭐', '🎵', '🏆', '💛', '🔥', '🌟', '🎤'].map(
-                (emoji) => (
-                  <option key={emoji} value={emoji}>
-                    {emoji}
-                  </option>
-                )
-              )}
+              {[
+                '🎓',
+                '✨',
+                '🎉',
+                '⭐',
+                '🎵',
+                '🏆',
+                '💛',
+                '🔥',
+                '🌟',
+                '🎤',
+              ].map((emoji) => (
+                <option key={emoji} value={emoji}>
+                  {emoji}
+                </option>
+              ))}
             </select>
           </label>
         </div>
@@ -307,6 +334,7 @@ export default function AudioEditor({
           />
         </label>
 
+        {/* Seleção do áudio */}
         <div className="mt-5 rounded-2xl border border-dashed border-gold/40 bg-gold/[.04] p-4">
           <div className="flex flex-wrap items-center gap-3">
             <div className="rounded-xl bg-gold/10 p-3 text-gold">
@@ -325,7 +353,7 @@ export default function AudioEditor({
               Escolher arquivo
               <input
                 type="file"
-                accept="audio/*,.mp3,.m4a,.wav"
+                accept="audio/*,.mp3,.m4a,.wav,.ogg,.aac,.flac"
                 className="hidden"
                 onChange={(e) => {
                   pickAudio(e.target.files?.[0])
@@ -335,10 +363,18 @@ export default function AudioEditor({
             </label>
           </div>
 
+          {loadingAudio && (
+            <p className="mt-3 text-sm text-amber-300">
+              Lendo informações do arquivo...
+            </p>
+          )}
+
           {hasAudio && (
             <button
               type="button"
-              onClick={() => onPreview({ ...form, startSec, endSec })}
+              onClick={() =>
+                onPreview({ ...form, startSec, endSec })
+              }
               className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 text-sm font-semibold"
             >
               <Play size={16} />
@@ -347,13 +383,17 @@ export default function AudioEditor({
           )}
         </div>
 
+        {/* Spotify */}
         <div className="mt-4 rounded-2xl border border-[#1db954]/25 bg-[#1db954]/[.05] p-4">
           <div className="flex items-center gap-3">
             <div className="rounded-xl bg-[#1db954]/10 p-3 text-[#1db954]">
               <Link2 />
             </div>
+
             <div className="min-w-0 flex-1">
-              <p className="font-semibold">Escolher música pelo Spotify</p>
+              <p className="font-semibold">
+                Escolher música pelo Spotify
+              </p>
               <p className="text-xs text-slate-400">
                 Pesquise uma música e copie o link da faixa.
               </p>
@@ -372,7 +412,9 @@ export default function AudioEditor({
           </a>
 
           <label className="mt-4 block">
-            <span className={labelClass}>Link da faixa do Spotify</span>
+            <span className={labelClass}>
+              Link da faixa do Spotify
+            </span>
             <input
               className={fieldClass}
               type="url"
@@ -392,6 +434,7 @@ export default function AudioEditor({
                 allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
                 loading="lazy"
               />
+
               <a
                 href={`https://open.spotify.com/track/${form.spotifyTrackId}`}
                 target="_blank"
@@ -405,11 +448,13 @@ export default function AudioEditor({
           )}
 
           <p className="mt-3 text-[11px] leading-5 text-slate-500">
-            O Spotify precisa de internet. O recorte, os fades e o volume
-            configurados aqui são aplicados aos arquivos de áudio locais.
+            O Spotify precisa de internet. O recorte, os fades e o
+            volume configurados aqui são aplicados aos arquivos de
+            áudio locais.
           </p>
         </div>
 
+        {/* Recorte: controles visíveis quando a duração é conhecida */}
         {audioDuration > 0 && (
           <div className="mt-5 rounded-2xl bg-black/20 p-4">
             <div className="mb-4 flex items-center gap-2 text-sm font-bold">
@@ -424,25 +469,28 @@ export default function AudioEditor({
               <span className={labelClass}>
                 Início do trecho — {timeText(startSec)}
               </span>
+
               <input
                 className="range-gold w-full cursor-pointer"
                 type="range"
                 min="0"
-                max={Math.max(0, audioDuration - 0.1)}
+                max={maxStart}
                 step="0.1"
-                value={Math.min(startSec, Math.max(0, audioDuration - 0.1))}
+                value={Math.min(startSec, maxStart)}
                 onChange={(e) => changeStart(e.target.value)}
               />
+
               <input
                 className={`${fieldClass} mt-2`}
                 type="number"
                 aria-label="Início em segundos"
                 min="0"
-                max={Math.max(0, audioDuration - 0.1)}
+                max={maxStart}
                 step="0.1"
                 value={startSec}
                 onChange={(e) => changeStart(e.target.value)}
               />
+
               <span className="mt-1 block text-xs text-slate-500">
                 Escolha em que segundo a música deve começar.
               </span>
@@ -452,28 +500,31 @@ export default function AudioEditor({
               <span className={labelClass}>
                 Fim do trecho — {timeText(endSec)}
               </span>
+
               <input
                 className="range-gold w-full cursor-pointer"
                 type="range"
-                min={Math.min(audioDuration, startSec + 0.1)}
+                min={minEnd}
                 max={audioDuration}
                 step="0.1"
                 value={Math.min(
                   audioDuration,
-                  Math.max(startSec + 0.1, endSec)
+                  Math.max(minEnd, endSec),
                 )}
                 onChange={(e) => changeEnd(e.target.value)}
               />
+
               <input
                 className={`${fieldClass} mt-2`}
                 type="number"
                 aria-label="Fim em segundos"
-                min={startSec + 0.1}
+                min={minEnd}
                 max={audioDuration}
                 step="0.1"
                 value={endSec}
                 onChange={(e) => changeEnd(e.target.value)}
               />
+
               <span className="mt-1 block text-xs text-slate-500">
                 Escolha em que segundo a música deve terminar.
               </span>
@@ -490,7 +541,13 @@ export default function AudioEditor({
                   step="0.1"
                   value={form.fadeIn ?? 0.5}
                   onChange={(e) =>
-                    update('fadeIn', Math.max(0, Math.min(5, Number(e.target.value) || 0)))
+                    update(
+                      'fadeIn',
+                      Math.max(
+                        0,
+                        Math.min(5, Number(e.target.value) || 0),
+                      ),
+                    )
                   }
                 />
               </label>
@@ -505,7 +562,13 @@ export default function AudioEditor({
                   step="0.1"
                   value={form.fadeOut ?? 1}
                   onChange={(e) =>
-                    update('fadeOut', Math.max(0, Math.min(5, Number(e.target.value) || 0)))
+                    update(
+                      'fadeOut',
+                      Math.max(
+                        0,
+                        Math.min(5, Number(e.target.value) || 0),
+                      ),
+                    )
                   }
                 />
               </label>
@@ -520,7 +583,9 @@ export default function AudioEditor({
                   min="0"
                   max="100"
                   value={form.volume ?? 85}
-                  onChange={(e) => update('volume', Number(e.target.value))}
+                  onChange={(e) =>
+                    update('volume', Number(e.target.value))
+                  }
                 />
               </label>
             </div>
@@ -528,7 +593,13 @@ export default function AudioEditor({
         )}
 
         {error && (
-          <p className="mt-4 rounded-xl border border-red-400/20 bg-red-500/10 p-3 text-sm text-red-200">
+          <p
+            className={`mt-4 rounded-xl border p-3 text-sm ${
+              loadingAudio
+                ? 'border-amber-400/20 bg-amber-500/10 text-amber-200'
+                : 'border-red-400/20 bg-red-500/10 text-red-200'
+            }`}
+          >
             {error}
           </p>
         )}
@@ -541,10 +612,12 @@ export default function AudioEditor({
           >
             Cancelar
           </button>
+
           <button
             type="button"
             onClick={save}
-            className="flex min-h-14 flex-[1.5] items-center justify-center gap-2 rounded-xl bg-gold font-bold text-ink"
+            disabled={loadingAudio}
+            className="flex min-h-14 flex-[1.5] items-center justify-center gap-2 rounded-xl bg-gold font-bold text-ink disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Save size={18} />
             Salvar entrada
