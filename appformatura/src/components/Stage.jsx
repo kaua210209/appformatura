@@ -1,0 +1,40 @@
+import { useEffect, useState } from 'react'
+import { Play, SkipForward, Square, RotateCcw, ChevronLeft, Volume2, Radio, Sun } from 'lucide-react'
+
+const clock = n => { const s = Math.max(0, Math.ceil(n || 0)); return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}` }
+
+export default function Stage({ entries, currentIndex, setCurrentIndex, audio, autoAdvance, setAutoAdvance, onStart, onNext, onStop, onRepeat, onExit }) {
+  const current = entries[currentIndex]
+  const next = entries[currentIndex + 1]
+  const [wakeEnabled, setWakeEnabled] = useState(false)
+  const remaining = Math.max(0, audio.duration - audio.currentTime)
+  useEffect(() => {
+    let lock
+    async function requestLock() {
+      try { if ('wakeLock' in navigator) { lock = await navigator.wakeLock.request('screen'); setWakeEnabled(true) } } catch { setWakeEnabled(false) }
+    }
+    requestLock()
+    const onVisibility = () => { if (document.visibilityState === 'visible') requestLock() }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => { document.removeEventListener('visibilitychange', onVisibility); lock?.release?.() }
+  }, [])
+  useEffect(() => {
+    const prevent = e => { if (e.touches?.length > 1) e.preventDefault() }
+    document.addEventListener('touchmove', prevent, { passive: false })
+    return () => document.removeEventListener('touchmove', prevent)
+  }, [])
+
+  return <div className="fixed inset-0 z-40 overflow-y-auto bg-[#06080d] text-white selection:bg-gold selection:text-ink"><div className="mx-auto flex min-h-[100dvh] max-w-5xl flex-col px-4 py-4 sm:px-8 sm:py-6">
+    <header className="flex items-center justify-between gap-3"><button onClick={onExit} className="flex min-h-12 items-center gap-2 rounded-xl border border-white/10 px-3 text-sm text-slate-300"><ChevronLeft size={18}/> Sair do palco</button><div className="flex items-center gap-2 text-xs text-slate-400"><span className={`h-2 w-2 rounded-full ${audio.playing ? 'animate-pulse bg-green-400' : 'bg-slate-600'}`}/>{audio.playing ? 'TOCANDO AGORA' : 'PRONTO PARA TOCAR'}</div><div title={wakeEnabled ? 'Tela mantida ativa' : 'Bloqueio de tela não disponível'} className="hidden items-center gap-2 text-xs text-slate-500 sm:flex"><Sun size={16}/>{wakeEnabled ? 'Tela ativa' : 'Modo palco'}</div></header>
+    <main className="flex flex-1 flex-col justify-center py-5 sm:py-8"><div className="mb-6 text-center"><p className="text-xs font-bold uppercase tracking-[.35em] text-gold">Entrada Show • Modo palco</p><p className="mt-2 text-sm text-slate-500">{entries.length ? `${currentIndex+1} de ${entries.length} entradas` : 'Nenhuma entrada cadastrada'}</p></div>
+      <section className="glass gold-glow mx-auto w-full max-w-3xl rounded-[2rem] p-5 text-center sm:p-10"><div className="mx-auto flex h-20 w-20 items-center justify-center rounded-3xl bg-gold/10 text-4xl sm:h-24 sm:w-24">{current?.emoji || '🎓'}</div><p className="mt-5 text-xs font-bold uppercase tracking-[.25em] text-slate-500">Entrada atual</p><h1 className="mt-2 break-words text-3xl font-black tracking-tight sm:text-5xl">{current?.name || 'Tudo pronto?'}</h1><p className="mt-2 text-slate-400">{current?.nickname || current?.groupName || (current ? 'Prepare-se para a entrada' : 'Cadastre suas entradas na biblioteca')}</p>
+        {current?.spotifyTrackId && !current?.audioBlob && <div className="mt-6 overflow-hidden rounded-2xl border border-[#1db954]/30 text-left"><div className="flex items-center gap-2 bg-[#1db954]/10 px-4 py-3 text-sm font-semibold text-[#1db954]"><span>●</span> Faixa do Spotify</div><iframe title={`Spotify: ${current.name}`} src={`https://open.spotify.com/embed/track/${current.spotifyTrackId}?utm_source=generator&theme=0`} width="100%" height="152" frameBorder="0" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="eager"/><a href={current.spotifyUrl || `https://open.spotify.com/track/${current.spotifyTrackId}`} target="_blank" rel="noreferrer" className="block border-t border-white/10 px-4 py-3 text-center text-xs font-semibold text-[#1db954]">Abrir faixa no Spotify ↗</a><p className="px-4 pb-3 text-[11px] leading-5 text-slate-500">Use o botão de reprodução dentro do player. O Spotify exige internet e não segue os cortes/fades do áudio local.</p></div>}
+        <div className="mt-8"><div className="mb-2 flex justify-between text-xs tabular-nums text-slate-400"><span>{clock(audio.currentTime)}</span><span>−{clock(remaining)}</span></div><div className="h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-gold transition-[width] duration-100" style={{width: `${audio.duration ? Math.min(100, audio.currentTime/audio.duration*100) : 0}%`}}/></div></div>
+        <div className="mt-8 grid grid-cols-2 gap-3 sm:gap-4"><button disabled={!current?.audioBlob && !current?.spotifyTrackId} onClick={onStart} className="flex min-h-[76px] items-center justify-center gap-3 rounded-2xl bg-gold text-xl font-black text-ink shadow-[0_8px_30px_rgba(232,189,102,.15)] transition active:scale-[.98] disabled:opacity-40 sm:min-h-24 sm:text-2xl"><Play size={26} fill="currentColor"/>{current?.spotifyTrackId && !current?.audioBlob ? 'SPOTIFY' : audio.playing ? 'TOCANDO' : 'PLAY'}</button><button disabled={!entries.length} onClick={onNext} className="flex min-h-[76px] items-center justify-center gap-3 rounded-2xl border border-gold/40 bg-gold/10 text-xl font-black text-gold transition active:scale-[.98] disabled:opacity-40 sm:min-h-24 sm:text-2xl">PRÓXIMO<SkipForward size={26}/></button></div>
+        <div className="mt-3 grid grid-cols-3 gap-2"><button onClick={onRepeat} disabled={!current?.audioBlob} className="flex min-h-14 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[.03] text-sm font-semibold text-slate-300 disabled:opacity-30"><RotateCcw size={17}/> Repetir</button><button onClick={onStop} className="flex min-h-14 items-center justify-center gap-2 rounded-xl border border-red-400/30 bg-red-500/10 text-sm font-bold text-red-200"><Square size={16} fill="currentColor"/> STOP</button><button onClick={() => setAutoAdvance(!autoAdvance)} className={`flex min-h-14 items-center justify-center gap-2 rounded-xl border text-xs font-bold ${autoAdvance ? 'border-green-400/30 bg-green-500/10 text-green-200' : 'border-white/10 bg-white/[.03] text-slate-400'}`}><Radio size={16}/>{autoAdvance ? 'Auto: ON' : 'Auto: OFF'}</button></div>
+      </section>
+      <section className="mx-auto mt-5 w-full max-w-3xl"><div className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/[.025] p-4"><div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-[.2em] text-slate-500">Próxima entrada</p><p className="mt-1 truncate font-semibold">{next ? `${next.emoji || '🎓'} ${next.name}` : 'Fim da lista'}</p></div><button disabled={currentIndex===0} onClick={() => { onStop(); setCurrentIndex(Math.max(0,currentIndex-1)) }} className="flex min-h-11 shrink-0 items-center gap-2 rounded-xl border border-white/10 px-3 text-sm text-slate-400 disabled:opacity-30"><ChevronLeft size={16}/> Anterior</button></div></section>
+      <section className="mx-auto mt-5 w-full max-w-3xl"><p className="mb-2 text-[10px] font-bold uppercase tracking-[.2em] text-slate-500">Acesso rápido</p><div className="grid grid-cols-2 gap-2 sm:grid-cols-3">{entries.map((entry, i) => <button key={entry.id} onClick={() => { onStop(); setCurrentIndex(i) }} className={`flex min-h-14 items-center gap-3 rounded-xl border px-3 text-left ${i===currentIndex ? 'border-gold/50 bg-gold/10' : 'border-white/5 bg-white/[.025]'}`}><span className="text-xl">{entry.emoji || '🎓'}</span><span className="min-w-0 flex-1 truncate text-sm font-semibold">{entry.name}</span><span className="text-xs text-slate-500">{i+1}</span></button>)}</div></section>
+    </main><footer className="flex items-center justify-center gap-2 pb-2 text-[10px] uppercase tracking-[.2em] text-slate-600"><Volume2 size={13}/> Verifique o som antes de iniciar o evento</footer>
+  </div></div>
+}
