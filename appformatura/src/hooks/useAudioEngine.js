@@ -1,3 +1,4 @@
+
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 export function useAudioEngine({ onEnded } = {}) {
@@ -19,7 +20,7 @@ export function useAudioEngine({ onEnded } = {}) {
 
       if (!AudioContextClass) {
         throw new Error(
-          'Este navegador não oferece suporte ao áudio necessário.'
+          'Este navegador não oferece suporte à reprodução de áudio.'
         )
       }
 
@@ -39,7 +40,7 @@ export function useAudioEngine({ onEnded } = {}) {
     setReady(true)
   }, [getContext])
 
-  const stop = useCallback((fade = 0.08) => {
+  const stop = useCallback((fade = 0) => {
     tokenRef.current += 1
 
     clearTimeout(endTimerRef.current)
@@ -47,6 +48,9 @@ export function useAudioEngine({ onEnded } = {}) {
     const source = sourceRef.current
     const gain = gainRef.current
     const context = contextRef.current
+
+    sourceRef.current = null
+    gainRef.current = null
 
     if (source && context) {
       try {
@@ -63,17 +67,14 @@ export function useAudioEngine({ onEnded } = {}) {
             now + fade
           )
 
-          source.stop(now + fade + 0.015)
+          source.stop(now + fade + 0.02)
         } else {
           source.stop()
         }
       } catch {
-        // A fonte de áudio pode já ter terminado.
+        // A reprodução pode já ter terminado.
       }
     }
-
-    sourceRef.current = null
-    gainRef.current = null
 
     setPlaying(false)
     setCurrentTime(0)
@@ -87,7 +88,6 @@ export function useAudioEngine({ onEnded } = {}) {
         )
       }
 
-      // Interrompe qualquer reprodução anterior.
       stop(0)
 
       const token = tokenRef.current
@@ -97,33 +97,42 @@ export function useAudioEngine({ onEnded } = {}) {
         await context.resume()
       }
 
-      // Converte o arquivo em um buffer reproduzível.
       const bytes = await entry.audioBlob.arrayBuffer()
       const buffer = await context.decodeAudioData(bytes.slice(0))
 
-      // Evita iniciar uma reprodução cancelada.
+      // Não inicia uma reprodução cancelada durante o carregamento.
       if (token !== tokenRef.current) return
 
-      // O recorte é respeitado tanto na prévia quanto na reprodução.
-      const start = Math.min(
-        Math.max(0, Number(entry.startSec) || 0),
-        buffer.duration
-      )
+      const totalDuration = buffer.duration
 
+      const requestedStart = Number(entry.startSec)
       const requestedEnd = Number(entry.endSec)
 
-      const end =
-        requestedEnd > start
-          ? Math.min(requestedEnd, buffer.duration)
-          : buffer.duration
+      const start = Math.max(
+        0,
+        Math.min(
+          Number.isFinite(requestedStart) ? requestedStart : 0,
+          totalDuration
+        )
+      )
 
-      const length = end - start
+      const end = Math.max(
+        0,
+        Math.min(
+          Number.isFinite(requestedEnd) && requestedEnd > 0
+            ? requestedEnd
+            : totalDuration,
+          totalDuration
+        )
+      )
 
-      if (length <= 0) {
+      if (start >= end) {
         throw new Error(
-          'O trecho selecionado é inválido. Ajuste o início e o fim.'
+          'O início precisa ser anterior ao fim. Ajuste o recorte e salve a entrada.'
         )
       }
+
+      const length = end - start
 
       const source = context.createBufferSource()
       const gain = context.createGain()
@@ -140,26 +149,24 @@ export function useAudioEngine({ onEnded } = {}) {
       )
 
       const fadeIn = preview
-        ? 0.02
+        ? 0
         : Math.min(
             Math.max(0, Number(entry.fadeIn) || 0),
             length / 2
           )
 
       const fadeOut = preview
-        ? 0.02
+        ? 0
         : Math.min(
             Math.max(0, Number(entry.fadeOut) || 0),
             length / 2
           )
 
-      // Configura o volume inicial.
       gain.gain.setValueAtTime(
         fadeIn > 0 ? 0.0001 : volume,
         now
       )
 
-      // Efeito de entrada gradual do som.
       if (fadeIn > 0) {
         gain.gain.linearRampToValueAtTime(
           volume,
@@ -167,7 +174,6 @@ export function useAudioEngine({ onEnded } = {}) {
         )
       }
 
-      // Efeito de saída gradual do som.
       if (fadeOut > 0) {
         gain.gain.setValueAtTime(
           volume,
@@ -191,21 +197,20 @@ export function useAudioEngine({ onEnded } = {}) {
       source.onended = () => {
         if (token !== tokenRef.current) return
 
+        clearTimeout(endTimerRef.current)
+
         sourceRef.current = null
         gainRef.current = null
-
-        clearTimeout(endTimerRef.current)
 
         setPlaying(false)
         setCurrentTime(length)
 
-        // A prévia não avança automaticamente para outra entrada.
         if (!preview) {
           onEnded?.(entry)
         }
       }
 
-      // Inicia no segundo selecionado e toca apenas o trecho escolhido.
+      // Segundo inicial e duração exata do trecho selecionado.
       source.start(now, start, length)
 
       const startedAt = performance.now()
@@ -221,7 +226,6 @@ export function useAudioEngine({ onEnded } = {}) {
         const elapsed = (performance.now() - startedAt) / 1000
 
         setCurrentTime(Math.min(length, elapsed))
-
         endTimerRef.current = setTimeout(tick, 100)
       }
 
